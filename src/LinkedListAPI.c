@@ -14,6 +14,7 @@ List * initializeList(char* (*printFunction)(void* toBePrinted),void (*deleteFun
     assert(compareFunction != NULL);
 
     List * tmpList = malloc(sizeof(List));
+	if (tmpList == NULL) return NULL;
 	
 	tmpList->head = NULL;
 	tmpList->tail = NULL;
@@ -100,14 +101,14 @@ Node* initializeNode(void* data){
 *@param list pointer to the dummy head of the list
 *@param toBeAdded a pointer to data that is to be added to the linked list
 **/
-void insertBack(List* list, void* toBeAdded){
+bool insertBack(List* list, void* toBeAdded){
 	if (list == NULL || toBeAdded == NULL){
-		return;
+		return false;
 	}
-	
-	(list->length)++;
 
 	Node* newNode = initializeNode(toBeAdded);
+	if (newNode == NULL) return false;
+	(list->length)++;
 	
     if (list->head == NULL && list->tail == NULL){
         list->head = newNode;
@@ -117,6 +118,7 @@ void insertBack(List* list, void* toBeAdded){
         list->tail->next = newNode;
     	list->tail = newNode;
     }
+    return true;
 }
 
 /**Inserts a Node at the front of a linked list.  List metadata is updated

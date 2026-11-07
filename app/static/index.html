@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Parse vCards and manage your contacts in a lightweight workspace.">
+  <title>vCard — Contact workspace</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="vCard home"><span class="brand-mark" aria-hidden="true">v.</span>vCard</a>
+    <nav aria-label="Resources"><span id="connection" class="connection">Connecting…</span><a href="/docs">API docs <span aria-hidden="true">↗</span></a></nav>
+  </header>
+  <main>
+    <div class="heading"><h1>Contacts</h1></div>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <noscript><p class="notice">Enable JavaScript to use this workspace. The <a href="/docs">API documentation</a> is also available.</p></noscript>
+    <div class="workspace">
+      <aside class="sidebar" aria-label="Upload and saved contacts">
+        <section class="panel upload-panel" aria-labelledby="upload-heading">
+          <div class="section-heading"><h2 id="upload-heading">Inspect a vCard</h2><span class="tag">.vcf / .vcard</span></div>
+          <form id="upload-form">
+            <label class="file-zone" for="vcard-file"><span class="upload-symbol" aria-hidden="true">↑</span><strong>Choose a contact file</strong><span>One UTF-8 vCard 4.0 with CRLF line endings</span><input id="vcard-file" name="file" type="file" accept=".vcf,.vcard" required></label>
+            <div class="button-row"><button class="primary" id="parse-button" type="submit">Parse file</button><button class="secondary" id="validate-button" type="button">Validate only</button></div>
+            <p class="hint">Uploads are previews and are not added to saved contacts.</p>
+          </form>
+        </section>
+        <section class="panel contacts-panel" aria-labelledby="contacts-heading">
+          <div class="section-heading"><h2 id="contacts-heading">Saved contacts</h2><button class="text-button" id="refresh-button" type="button">Refresh</button></div>
+          <p id="persistence-note" class="hint" hidden>Saving is disabled. You can still parse and validate files.</p>
+          <form id="create-form" class="create-form"><label class="sr-only" for="new-name">New contact name</label><input id="new-name" name="formatted_name" placeholder="New contact name" maxlength="512" required><button type="submit" class="primary" id="create-button">Add</button></form>
+          <div id="contacts" class="contact-list" aria-label="Contact list"><p class="empty-list">Loading your contacts…</p></div>
+          <div class="pagination"><button id="previous-button" type="button" class="text-button">← Previous</button><span id="page-label">Page 1</span><button id="next-button" type="button" class="text-button">Next →</button></div>
+        </section>
+      </aside>
+      <section class="panel detail-panel" aria-labelledby="detail-heading">
+        <div class="detail-topline"><span>Contact details</span><span id="detail-kind" class="tag" hidden></span></div>
+        <div id="empty-detail" class="empty-detail"><h2 id="detail-heading">No contact selected</h2><p>Select a saved contact or upload a vCard.</p></div>
+        <div id="card-detail" hidden>
+          <div class="contact-hero"><div id="avatar" class="avatar" aria-hidden="true"></div><div><h2 id="contact-name" tabindex="-1"></h2><p id="contact-subtitle" class="hint"></p></div></div>
+          <form id="edit-form" class="edit-form" hidden><label for="edit-name">Formatted name</label><div class="button-row"><input id="edit-name" name="formatted_name" maxlength="512" required><button type="submit" class="primary">Save name</button></div></form>
+          <dl class="facts"><div><dt>Birthday</dt><dd id="birthday"></dd></div><div><dt>Anniversary</dt><dd id="anniversary"></dd></div></dl>
+          <div class="properties-section"><div class="section-heading"><h3>Properties</h3><span id="property-count" class="tag"></span></div><div id="properties" class="properties"></div></div>
+          <details class="source-details"><summary>View vCard source</summary><pre id="vcard-source"></pre></details>
+          <div class="detail-actions"><button id="download-button" type="button" class="secondary">Download .vcf</button><button id="delete-button" type="button" class="danger" hidden>Delete contact</button></div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <dialog id="delete-dialog" aria-labelledby="delete-heading"><h2 id="delete-heading">Delete this contact?</h2><p id="delete-description"></p><p>This removes the saved contact permanently.</p><div class="button-row"><button id="cancel-delete" class="secondary" type="button" autofocus>Keep contact</button><button id="confirm-delete" class="danger" type="button">Delete contact</button></div></dialog>
+</body>
+</html>

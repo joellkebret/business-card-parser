@@ -1,10 +1,6 @@
-//Name: Joell Kebret
-//Student ID: 1275379
 
 #include "VCHelpers.h"
 #include "VCParser.h"
-
-int updateFN(Card* card, const char* newFN);
 
 void deleteProperty(void* toBeDeleted) { 
     if (toBeDeleted == NULL) return;
@@ -33,7 +29,7 @@ void deleteProperty(void* toBeDeleted) {
 }
 
 int compareDates(const void* first, const void* second) {
-    return 0; // function stub according to asssignment
+    return 0; // Dates are not sorted by the parser
 }
 
 void deleteDate(void* toBeDeleted) {
@@ -223,85 +219,18 @@ char* parameterToString(void* param){
     return strdup(buffer);  //return valid copy
 }
 
-char* propertyToString(void* prop){
-    if (prop == NULL){
-        return strdup(""); //empty string for null val
-    }
-
-    Property* property = (Property*)prop;
-    char buffer[1000];  //temporary buffer
-
-
-    if (strlen(property->group) > 0){
-        snprintf(buffer, sizeof(buffer), "%s.%s:", property->group, property->name);
-    } 
-
-    else {
-        snprintf(buffer, sizeof(buffer), "%s:", property->name);
-    }
-
-    if (getLength(property->values) > 0) {
-        strcat(buffer, " ");
-        ListIterator valueIter = createIterator(property->values);
-        void* value;
-        int firstValue = 1;
-
-        while ((value = nextElement(&valueIter)) != NULL) {
-            if (!firstValue) {
-                strcat(buffer, ", ");  // Add separator between values
-            }
-            strcat(buffer, (char*)value);
-            firstValue = 0;
-        }
-    }
-
-    if (getLength(property->parameters) > 0) {
-        strcat(buffer, " (");
-
-        ListIterator paramIter = createIterator(property->parameters);
-        void* param;
-        int firstParam = 1;
-
-        while ((param = nextElement(&paramIter)) != NULL) {
-            if (!firstParam) {
-                strcat(buffer, ", ");  // Add separator between parameters
-            }
-            char* paramStr = parameterToString(param);
-            strcat(buffer, paramStr);
-            free(paramStr);  // Free dynamically allocated parameter string
-            firstParam = 0;
-        }
-
-        strcat(buffer, ")");
-    }
-
-    return strdup(buffer);  // Return dynamically allocated copy
+char* propertyToString(void* prop) {
+    return strdup(prop ? ((Property*)prop)->name : "");
 }
 
 int updateFN(Card* card, const char* newFN) {
-    if (card == NULL || newFN == NULL) return 1;
-
-    // Delete old FN property if it exists
-    if (card->fn != NULL) {
-        deleteProperty(card->fn);
-    }
-
-    // Create new FN property
-    Property* fn = malloc(sizeof(Property));
-    if (!fn) return 1;
-
-    fn->name = strdup("FN");
-    fn->group = strdup("");  // Or NULL if you prefer
-    fn->parameters = initializeList(parameterToString, deleteParameter, compareParameters);
-    fn->values = initializeList(valueToString, deleteValue, compareValues);
-
-    if (!fn->name || !fn->group || !fn->parameters || !fn->values) {
-        deleteProperty(fn);
-        return 1;
-    }
-
-    insertBack(fn->values, strdup(newFN));
-    card->fn = fn;
-    return 0;
+    if (!card || !card->fn || !newFN || !*newFN) return INV_PROP;
+    char* value = strdup(newFN);
+    if (!value) return OTHER_ERROR;
+    List* values = initializeList(valueToString, deleteValue, compareValues);
+    if (!values) { free(value); return OTHER_ERROR; }
+    if (!insertBack(values, value)) { free(value); freeList(values); return OTHER_ERROR; }
+    freeList(card->fn->values);
+    card->fn->values = values;
+    return OK;
 }
-

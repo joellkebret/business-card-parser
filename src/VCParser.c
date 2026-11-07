@@ -1,5 +1,3 @@
-//Name: Joell Kebret
-//Student ID: 1275379
 
 #include "VCHelpers.h"
 #include "VCParser.h"
@@ -9,13 +7,15 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
         return INV_FILE;
     }
 
+    *newCardObject = NULL;
+
     //check file extension
     char* extension = strrchr(fileName, '.');
     if (!extension || (strcmp(extension, ".vcf") != 0 && strcmp(extension, ".vcard") != 0)) {
         return INV_FILE;
     }
 
-    FILE* file = fopen(fileName, "r");
+    FILE* file = fopen(fileName, "rb");
     if (file == NULL) {
         return INV_FILE;
     }
@@ -34,43 +34,44 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
     (*newCardObject)->optionalProperties = initializeList(propertyToString, deleteProperty, compareProperties);
     if ((*newCardObject)->optionalProperties == NULL) {
         free(*newCardObject);
+        *newCardObject = NULL;
         fclose(file);
         return OTHER_ERROR;
     }
 
     bool foundFN = false, foundVersion = false, foundBegin = false, foundEnd = false;
     double version = 0.0;
-    Property* finalProperty = NULL;
 
-    char line[1024];
+    char line[65536];
     while (fgets(line, sizeof(line), file) != NULL) {
         long len = strlen(line);
 
         // check if CRLF is present
         if (len < 2 || line[len - 2] != '\r' || line[len - 1] != '\n') {
             deleteCard(*newCardObject);
+            *newCardObject = NULL;
             fclose(file);
             return INV_CARD;
         }
-        line[len - 2] = '\0';  // remove CRLF
-
-        //check if first is space or tab
-        if ((line[0] == ' ' || line[0] == '\t') && finalProperty != NULL) {
-            char* foldedValue = strdup(line + 1);
-            if (foldedValue) {
-                char* oldValue = getFromBack(finalProperty->values);
-                if (oldValue) {
-                    long newLen = strlen(oldValue) + strlen(foldedValue);
-                    char* newVal = malloc(newLen + 1);
-                    if (newVal) {
-                        sprintf(newVal, "%s%s", oldValue, foldedValue);
-                        free(oldValue);
-                        finalProperty->values->tail->data = newVal;
-                    }
-                }
-                free(foldedValue);
+        line[len - 2] = '\0';
+        /* Consume continuations before splitting property names or values. */
+        while (1) {
+            int next = fgetc(file);
+            if (next != ' ' && next != '\t') {
+                if (next != EOF) ungetc(next, file);
+                break;
             }
-            continue;
+            size_t used = strlen(line);
+            if (!fgets(line + used, sizeof(line) - used, file)) {
+                deleteCard(*newCardObject); *newCardObject = NULL;
+                fclose(file); return INV_CARD;
+            }
+            size_t total = strlen(line);
+            if (total < 2 || line[total-2] != '\r' || line[total-1] != '\n') {
+                deleteCard(*newCardObject); *newCardObject = NULL;
+                fclose(file); return INV_CARD;
+            }
+            line[total-2] = '\0';
         }
 
         //skip empty lines
@@ -82,6 +83,7 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
         if (!foundBegin) {
             if (strcmp(line, "BEGIN:VCARD") != 0) {
                 deleteCard(*newCardObject);
+                *newCardObject = NULL;
                 fclose(file);
                 return INV_CARD;
             }
@@ -92,6 +94,13 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
         // check if last line is end:vcard
         if (strcmp(line, "END:VCARD") == 0) {
             foundEnd = true;
+            int trailing;
+            while ((trailing = fgetc(file)) != EOF) {
+                if (!isspace((unsigned char)trailing)) {
+                    deleteCard(*newCardObject); *newCardObject = NULL;
+                    fclose(file); return INV_CARD;
+                }
+            }
             break;
         }
 
@@ -99,6 +108,7 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
         char* colonPosition = strchr(line, ':');
         if (!colonPosition) {
             deleteCard(*newCardObject);
+            *newCardObject = NULL;
             fclose(file);
             return INV_PROP;
         }
@@ -110,6 +120,7 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
         //if property name or value empty
         if (strlen(entireProperty) == 0 || strlen(propertyValue) == 0) {
             deleteCard(*newCardObject);
+            *newCardObject = NULL;
             fclose(file);
             return INV_PROP;
         }
@@ -118,6 +129,7 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
         char* propertyGroup = strdup("");
         if (!propertyGroup) {
             deleteCard(*newCardObject);
+            *newCardObject = NULL;
             fclose(file);
             return OTHER_ERROR;
         }
@@ -138,6 +150,10 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
             free(propertyGroup);
             propertyGroup = strdup(entireProperty);
             propName = periodPosition + 1;
+            if (!propertyGroup) {
+                deleteCard(*newCardObject); *newCardObject = NULL;
+                fclose(file); return OTHER_ERROR;
+            }
         }
 
         //init params
@@ -145,6 +161,7 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
         if (!paramList) {
             free(propertyGroup);
             deleteCard(*newCardObject);
+            *newCardObject = NULL;
             fclose(file);
             return OTHER_ERROR;
         }
@@ -162,6 +179,7 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
                 if (!equalPosition) {
                     free(propertyGroup);
                     deleteCard(*newCardObject);
+                    *newCardObject = NULL;
                     freeList(paramList);
                     fclose(file);
                     return INV_PROP;
@@ -175,13 +193,18 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
                 if (!newParam) {
                     free(propertyGroup);
                     deleteCard(*newCardObject);
+                    *newCardObject = NULL;
                     freeList(paramList);
                     fclose(file);
                     return OTHER_ERROR;
                 }
                 newParam->name = strdup(parameterName);
                 newParam->value = strdup(parameterVal);
-                insertBack(paramList, newParam);
+                if (!newParam->name || !newParam->value || !insertBack(paramList, newParam)) {
+                    deleteParameter(newParam); free(propertyGroup); freeList(paramList);
+                    deleteCard(*newCardObject); *newCardObject = NULL;
+                    fclose(file); return OTHER_ERROR;
+                }
 
                 // Check if VALUE=text
                 if (strcasecmp(parameterName, "VALUE") == 0 && strcasecmp(parameterVal, "text") == 0) {
@@ -196,15 +219,17 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
             if (foundVersion) {
                 free(propertyGroup);
                 deleteCard(*newCardObject);
+                *newCardObject = NULL;
                 freeList(paramList);
                 fclose(file);
                 return INV_CARD;
             }
             foundVersion = true;
-            version = atof(propertyValue);
+            version = strcmp(propertyValue, "4.0") == 0 ? 4.0 : 0.0;
             if (version != 4.0) {
                 free(propertyGroup);
                 deleteCard(*newCardObject);
+                *newCardObject = NULL;
                 freeList(paramList);
                 fclose(file);
                 return INV_CARD;
@@ -219,6 +244,7 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
             if (foundFN) {
                 free(propertyGroup);
                 deleteCard(*newCardObject);
+                *newCardObject = NULL;
                 freeList(paramList);
                 fclose(file);
                 return INV_CARD;
@@ -229,6 +255,7 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
             if (!fnProp) {
                 free(propertyGroup);
                 deleteCard(*newCardObject);
+                *newCardObject = NULL;
                 freeList(paramList);
                 fclose(file);
                 return OTHER_ERROR;
@@ -242,20 +269,35 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
             if (!fnProp->name || !fnProp->values) {
                 deleteProperty(fnProp);
                 deleteCard(*newCardObject);
+                *newCardObject = NULL;
                 fclose(file);
                 return OTHER_ERROR;
             }
 
-            insertBack(fnProp->values, strdup(propertyValue));
+            char* fnValue = strdup(propertyValue);
+            if (!fnValue || !insertBack(fnProp->values, fnValue)) {
+                free(fnValue); deleteProperty(fnProp);
+                deleteCard(*newCardObject); *newCardObject = NULL;
+                fclose(file); return OTHER_ERROR;
+            }
             (*newCardObject)->fn = fnProp;
-            finalProperty = fnProp;
         }
         //create bday
         else if (strcmp(propName, "BDAY") == 0 || strcmp(propName, "ANNIVERSARY") == 0) {
+            if ((strcmp(propName, "BDAY") == 0 && (*newCardObject)->birthday) ||
+                (strcmp(propName, "ANNIVERSARY") == 0 && (*newCardObject)->anniversary)) {
+                free(propertyGroup);
+                freeList(paramList);
+                deleteCard(*newCardObject);
+                *newCardObject = NULL;
+                fclose(file);
+                return INV_DT;
+            }
             DateTime* vcardDate = malloc(sizeof(DateTime));
             if (!vcardDate) {
                 free(propertyGroup);
                 deleteCard(*newCardObject);
+                *newCardObject = NULL;
                 freeList(paramList);
                 fclose(file);
                 return OTHER_ERROR;
@@ -267,6 +309,12 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
             vcardDate->time   = strdup("");
             vcardDate->text   = strdup("");
 
+            if (!vcardDate->date || !vcardDate->time || !vcardDate->text) {
+                deleteDate(vcardDate); free(propertyGroup); freeList(paramList);
+                deleteCard(*newCardObject); *newCardObject = NULL;
+                fclose(file); return OTHER_ERROR;
+            }
+
             if (isValueText) {
                 //check if dt is text
                 free(vcardDate->text);
@@ -275,6 +323,11 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
                 //
                 char* timePosition = strchr(propertyValue, 'T');
                 if (timePosition) {
+                    if (!timePosition[1]) {
+                        deleteDate(vcardDate); free(propertyGroup); freeList(paramList);
+                        deleteCard(*newCardObject); *newCardObject = NULL;
+                        fclose(file); return INV_DT;
+                    }
                     *timePosition = '\0';
                     free(vcardDate->date);
                     vcardDate->date = strdup(propertyValue);
@@ -282,7 +335,7 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
                     vcardDate->time = strdup(timePosition + 1);
 
                     //check if ends with Z
-                    if (vcardDate->time[strlen(vcardDate->time) - 1] == 'Z') {
+                    if (vcardDate->time && vcardDate->time[0] && vcardDate->time[strlen(vcardDate->time) - 1] == 'Z') {
                         vcardDate->UTC = true;
                         vcardDate->time[strlen(vcardDate->time) - 1] = '\0';
                     }
@@ -296,6 +349,12 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
             free(propertyGroup);
             freeList(paramList);
 
+            if (!vcardDate->date || !vcardDate->time || !vcardDate->text) {
+                deleteDate(vcardDate);
+                deleteCard(*newCardObject); *newCardObject = NULL;
+                fclose(file); return OTHER_ERROR;
+            }
+
             if (strcmp(propName, "BDAY") == 0) {
                 // Save as birthday
                 (*newCardObject)->birthday = vcardDate;
@@ -303,7 +362,6 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
                 // Save as anniversary
                 (*newCardObject)->anniversary = vcardDate;
             }
-            finalProperty = NULL;
         }
         //store as a normal Property in optionalProperties
         else {
@@ -311,6 +369,7 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
             if (!prop) {
                 free(propertyGroup);
                 deleteCard(*newCardObject);
+                *newCardObject = NULL;
                 freeList(paramList);
                 fclose(file);
                 return OTHER_ERROR;
@@ -324,39 +383,49 @@ VCardErrorCode createCard(char* fileName, Card** newCardObject) {
             if (!prop->name || !prop->values) {
                 deleteProperty(prop);
                 deleteCard(*newCardObject);
+                *newCardObject = NULL;
                 fclose(file);
                 return OTHER_ERROR;
             }
 
-           // If N property, parse semicolon-delimited fields
-if (strcasecmp(propName, "N") == 0 || strcasecmp(propName, "ADR") == 0) {
-    char* start = propertyValue;
-    
-    for (int i = 0; i < (strcasecmp(propName, "N") == 0 ? 5 : 7); i++) { 
-        char* semicolon = strchr(start, ';');
-        
-        if (semicolon) {
-            *semicolon = '\0';
-            insertBack(prop->values, strdup(start));
-            start = semicolon + 1;
-        } else {
-            insertBack(prop->values, strdup(start));
-            break;  // No more values
-        }
-    }
-
-    // Ensure exactly 5 values for `N` and 7 for `ADR`
-    int requiredValues = (strcasecmp(propName, "N") == 0) ? 5 : 7;
-    while (getLength(prop->values) < requiredValues) {
-        insertBack(prop->values, strdup(""));  // Fill missing fields with empty values
-    }
-} else {
-    // Normal property: store value as a single entry
-    insertBack(prop->values, strdup(propertyValue));
-}
-
-            insertBack((*newCardObject)->optionalProperties, prop);
-            finalProperty = prop;
+            bool valuesOK = true;
+            if (strcasecmp(propName, "N") == 0 || strcasecmp(propName, "ADR") == 0) {
+                int required = strcasecmp(propName, "N") == 0 ? 5 : 7;
+                char* start = propertyValue;
+                int count = 0;
+                while (1) {
+                    char* separator = start;
+                    while (*separator) {
+                        if (*separator == '\\' && separator[1]) { separator += 2; continue; }
+                        if (*separator == ';') break;
+                        separator++;
+                    }
+                    bool more = *separator != '\0';
+                    *separator = '\0';
+                    char* value = strdup(start);
+                    if (!value || !insertBack(prop->values, value)) {
+                        free(value); valuesOK = false; break;
+                    }
+                    count++;
+                    if (!more) break;
+                    if (count >= required) {
+                        deleteProperty(prop); deleteCard(*newCardObject);
+                        *newCardObject = NULL; fclose(file); return INV_PROP;
+                    }
+                    start = separator + 1;
+                }
+                for (; valuesOK && count < required; count++) {
+                    char* value = strdup("");
+                    if (!value || !insertBack(prop->values, value)) { free(value); valuesOK = false; }
+                }
+            } else {
+                char* value = strdup(propertyValue);
+                if (!value || !insertBack(prop->values, value)) { free(value); valuesOK = false; }
+            }
+            if (!valuesOK || !insertBack((*newCardObject)->optionalProperties, prop)) {
+                deleteProperty(prop); deleteCard(*newCardObject);
+                *newCardObject = NULL; fclose(file); return OTHER_ERROR;
+            }
         }
     } // end while
 
@@ -365,12 +434,14 @@ if (strcasecmp(propName, "N") == 0 || strcasecmp(propName, "ADR") == 0) {
     // If END:VCARD was never found => invalid
     if (!foundEnd) {
         deleteCard(*newCardObject);
+        *newCardObject = NULL;
         return INV_CARD;
     }
 
     // Must have found FN and version == 4.0
     if (!foundFN || !foundVersion || version != 4.0) {
         deleteCard(*newCardObject);
+        *newCardObject = NULL;
         return INV_CARD;
     }
 
@@ -401,114 +472,9 @@ void deleteCard(Card* obj) {
     free(obj); //delete all individuals parts of a v card then card itself.
 }
 
-char* cardToString(const Card* obj) {
-    if (obj == NULL) {
-        return strdup("Invalid card: NULL");
-    }
-
-    char* buffer = malloc(8192);
-    if (buffer == NULL) {
-        return NULL;
-    }
-
-    strcpy(buffer, "BEGIN:VCARD\nVERSION:4.0\n");
-    
-    if (obj->fn) {
-        char* fnStr = (char*)getFromFront(obj->fn->values);
-        sprintf(buffer + strlen(buffer), "FN:%s\n", fnStr);
-    } else {
-        free(buffer);
-        return NULL;
-    }
-    
-    if (obj->birthday) {
-        if (obj->birthday->isText) {
-            sprintf(buffer + strlen(buffer), "BDAY:%s\n", obj->birthday->text);
-        } else {
-            sprintf(buffer + strlen(buffer), "BDAY:%sT%s%s\n", obj->birthday->date, obj->birthday->time, obj->birthday->UTC ? "Z" : "");
-        }
-    }
-    
-    if (obj->anniversary) {
-        if (obj->anniversary->isText) {
-            sprintf(buffer + strlen(buffer), "ANNIVERSARY:%s\n", obj->anniversary->text);
-        } else {
-            sprintf(buffer + strlen(buffer), "ANNIVERSARY:%sT%s%s\n", obj->anniversary->date, obj->anniversary->time, obj->anniversary->UTC ? "Z" : "");
-        }
-    }
-    
-    ListIterator iter = createIterator(obj->optionalProperties);
-    void* prop;
-    while ((prop = nextElement(&iter)) != NULL) {
-        Property* property = (Property*)prop;
-        sprintf(buffer + strlen(buffer), "%s", property->name);
-        
-        ListIterator paramIter = createIterator(property->parameters);
-        void* paramElem;
-        while ((paramElem = nextElement(&paramIter)) != NULL) {
-            Parameter* param = (Parameter*)paramElem;
-            sprintf(buffer + strlen(buffer), ";%s=%s", param->name, param->value);
-        }
-        
-        sprintf(buffer + strlen(buffer), ":");
-        
-        ListIterator valIter = createIterator(property->values);
-        void* valElem = nextElement(&valIter);
-        if (valElem != NULL) {
-            sprintf(buffer + strlen(buffer), "%s", (char*)valElem);
-        }
-        while ((valElem = nextElement(&valIter)) != NULL) {
-            sprintf(buffer + strlen(buffer), ";%s", (char*)valElem);
-        }
-        
-        sprintf(buffer + strlen(buffer), "\n");
-    }
-
-    strcat(buffer, "END:VCARD\n");
-    return buffer;
-}
-
-
- char* errorToString(VCardErrorCode err) {
-    char* message = NULL;
-
-    switch (err) {
-        case OK:
-            message = "OK";
-            break;
-        case INV_FILE:
-            message = "Invalid file";
-            break;
-        case INV_CARD:
-            message = "Invalid card";
-            break;
-        case INV_PROP:
-            message = "Invalid property";
-            break;
-        case INV_DT:
-            message = "Invalid date/time";
-            break;
-        case WRITE_ERROR:
-            message = "Write error";
-            break;
-        case OTHER_ERROR:
-            message = "Other error";
-            break;
-        default:
-            message = "Unknown error";
-            break;
-    }
-
-    //dynamically allocate the message including the null terminator
-    char* result = malloc(strlen(message) + 1);
-    if (result != NULL) {
-        strcpy(result, message);
-    }
-
-    return result;  //caller needs to free
-} 
-
 VCardErrorCode writeCard(const char* fileName, const Card* obj) {
+
+    if (validateCard(obj) != OK) return WRITE_ERROR;
 
     //param checks
     if (obj == NULL || fileName == NULL || fileName[0] == '\0') {
@@ -521,7 +487,7 @@ VCardErrorCode writeCard(const char* fileName, const Card* obj) {
         return WRITE_ERROR;
     }
 
-    FILE *file = fopen(fileName, "w");
+    FILE *file = fopen(fileName, "wb");
     if (file == NULL) {
         return WRITE_ERROR;
     }
@@ -530,81 +496,10 @@ VCardErrorCode writeCard(const char* fileName, const Card* obj) {
     fprintf(file, "BEGIN:VCARD\r\n");
     fprintf(file, "VERSION:4.0\r\n");
 
-    // write fn is not null and not empty
-    if (obj->fn != NULL) {
-        fprintf(file, "FN:%s\r\n", 
-                (obj->fn->values != NULL && getLength(obj->fn->values) > 0) ? 
-                (char*)getFromFront(obj->fn->values) : "");
-    }
-
-    // Loop through optionalProperties
+    writeProperty(file, obj->fn);
     ListIterator iter = createIterator(obj->optionalProperties);
     void* elem;
-    while ((elem = nextElement(&iter)) != NULL) {
-        Property* prop = (Property*)elem;
-
-        //prop name should not be null or values or length of values should not be null
-        if (prop->name == NULL || prop->values == NULL || getLength(prop->values) == 0) {
-            continue; // Skip this property if invalid
-        }
-
-        fprintf(file, "%s", prop->name); 
-
-        //param loop
-        ListIterator paramIter = createIterator(prop->parameters);
-        void* paramElem;
-        int firstParam = 1; //tracking param to avoid exrenuous semicolon
-        
-        while ((paramElem = nextElement(&paramIter)) != NULL) {
-            Parameter* param = (Parameter*)paramElem;
-            if (param->name != NULL && param->value != NULL) {
-                fprintf(file, "%s%s=%s", firstParam ? ";" : ";", param->name, param->value);
-                firstParam = 0;
-            }
-        }
-
-        //handle properties that require multiple values per rfc 6350
-        int requiredValues = 1;  
-        int minValues = 1;     
-
-        if (strcasecmp(prop->name, "N") == 0) {
-            requiredValues = 5;
-        } else if (strcasecmp(prop->name, "ADR") == 0) {
-            requiredValues = 7;
-        } else if (strcasecmp(prop->name, "CLIENTPIDMAP") == 0) {
-            minValues = 2; 
-        } else if (strcasecmp(prop->name, "GENDER") == 0) {
-            minValues = 1;  //special case one or two
-            requiredValues = 2;
-        }
-
-        // Print values
-        ListIterator valIter = createIterator(prop->values);
-        void* valElem;
-        int i = 0;
-
-        fprintf(file, ":");
-        while ((valElem = nextElement(&valIter)) != NULL && i < requiredValues) {
-            fprintf(file, "%s", (char*)valElem);
-            if (i < requiredValues - 1) {  
-                fprintf(file, ";");  // add semicolon
-            }
-            i++;
-        }
-
-        while (i < requiredValues) {
-            fprintf(file, ";");
-            i++;
-        }
-
-        //check vlaue of this speicifc case
-        if (strcasecmp(prop->name, "CLIENTPIDMAP") == 0 && i < minValues) {
-            fclose(file);
-            return WRITE_ERROR;  // Not enough values for CLIENTPIDMAP
-        }
-
-        fprintf(file, "\r\n"); 
-    }
+    while ((elem = nextElement(&iter)) != NULL) writeProperty(file, elem);
 
     // Handle BDAY
     if (obj->birthday != NULL) {
@@ -644,8 +539,9 @@ VCardErrorCode writeCard(const char* fileName, const Card* obj) {
     // End vCard
     fprintf(file, "END:VCARD\r\n");
 
-    fclose(file);
-    return OK; // Write successful
+    int failed = ferror(file);
+    if (fclose(file) != 0) failed = 1;
+    return failed ? WRITE_ERROR : OK;
 }
 
 
@@ -658,6 +554,14 @@ VCardErrorCode validateCard(const Card* obj) {
 
     if (obj->fn == NULL) {   
         return INV_CARD;  // FN must exist
+    }
+    if (!obj->fn->name || strcasecmp(obj->fn->name, "FN") != 0 ||
+        !obj->fn->group || !obj->fn->parameters) return INV_PROP;
+    ListIterator fnParameters = createIterator(obj->fn->parameters);
+    Parameter* fnParameter;
+    while ((fnParameter = nextElement(&fnParameters))) {
+        if (!fnParameter->name || !*fnParameter->name ||
+            !fnParameter->value || !*fnParameter->value) return INV_PROP;
     }
     if (obj->fn->values == NULL || getLength(obj->fn->values) == 0) {
         return INV_CARD;  //FN has no values
@@ -673,7 +577,7 @@ VCardErrorCode validateCard(const Card* obj) {
     }
 
     // occurcence / cardinality tracker
-    int kindCount = 0; //this is kind of hardcoded for the test
+    int kindCount = 0; //KIND cardinality
     int nCount = 0;
     int uidCount = 0;
     int revCount = 0;
@@ -686,6 +590,9 @@ VCardErrorCode validateCard(const Card* obj) {
     void* elem;
     while ((elem = nextElement(&iter)) != NULL) {
         Property* prop = (Property*)elem;
+
+        if (!prop->name || !*prop->name || !prop->group || !prop->parameters || !prop->values)
+            return INV_PROP;
 
         // version is required
         if (strcasecmp(prop->name, "VERSION") == 0) {
@@ -732,12 +639,7 @@ VCardErrorCode validateCard(const Card* obj) {
             }
         }
         
-        if (strcasecmp(prop->name, "REV") == 0) {
-            revCount++;
-            if (revCount > 1) {
-                return INV_PROP;  
-            }
-        }
+
 
         if (strcasecmp(prop->name, "GENDER") == 0) {
             genderCount++;
@@ -774,6 +676,8 @@ VCardErrorCode validateCard(const Card* obj) {
             }
         }
     }
+
+    if (!validDate(obj->birthday) || !validDate(obj->anniversary)) return INV_DT;
 
     // validate bday if existing
     if (obj->birthday != NULL) {

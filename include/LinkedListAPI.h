@@ -93,7 +93,8 @@ void insertFront(List* list, void* toBeAdded);
 *@param list pointer to the List struct
 *@param toBeAdded - a pointer to data that is to be added to the linked list
 **/
-void insertBack(List* list, void* toBeAdded);
+/* On failure ownership remains with the caller. */
+bool insertBack(List* list, void* toBeAdded);
 
 
 

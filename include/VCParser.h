@@ -99,14 +99,12 @@ typedef struct vCard {
 
 } Card;
 
-// ************* Card parser functions - MUST be implemented ***************
+// ************* Card parser functions ***************
 VCardErrorCode createCard(char* fileName, Card** obj);
 void deleteCard(Card* obj);
-char* cardToString(const Card* obj);
-char* errorToString(VCardErrorCode err);
 // *************************************************************************
 
-// ************* List helper functions - MUST be implemented *************** 
+// ************* List helper functions ***************
 void deleteProperty(void* toBeDeleted);
 int compareProperties(const void* first,const void* second);
 char* propertyToString(void* prop);
@@ -124,7 +122,7 @@ int compareDates(const void* first,const void* second);
 char* dateToString(void* date);
 // **************************************************************************
 
-// ************* Assignment 2 functions - MUST be implemented ***************
+// ************* Card validation and serialization ***************
 
 /** Function to writing a Card object into a file in vCard format.
  *@pre Card object exists, and is not NULL.

@@ -1,0 +1,3 @@
+# vCard fixtures require CRLF bytes, regardless of checkout platform.
+*.vcf -text
+*.vcard -text
